@@ -86,7 +86,7 @@ export default function QueuePage() {
         <div className="queue-grid">
           {posts.map((post) => (
             <div key={post.id} className="content-card">
-              {/* Screenshot preview */}
+              {/* Screenshot preview or text fallback */}
               {post.screenshotUrl ? (
                 <img
                   src={post.screenshotUrl}
@@ -95,15 +95,24 @@ export default function QueuePage() {
                 />
               ) : (
                 <div
-                  className="card-image"
+                  className="card-image-fallback"
                   style={{
                     display: "flex",
+                    flexDirection: "column",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: "32px",
+                    padding: "20px",
+                    textAlign: "center",
+                    background: "rgba(255, 255, 255, 0.03)",
+                    borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                    height: "200px",
+                    overflow: "hidden"
                   }}
                 >
-                  📷
+                  <div style={{ fontSize: "32px", marginBottom: "12px" }}>📄</div>
+                  <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", fontWeight: "500" }}>
+                    {post.sourceTitle}
+                  </div>
                 </div>
               )}
 
