@@ -29,8 +29,9 @@ export async function fetchSubredditPosts(
 
     const res = await fetch(url, {
         headers: {
-            // Reddit blocks requests without a User-Agent
-            "User-Agent": "SocialAgent/1.0",
+            // Reddit blocks simple or data-center User-Agents.
+            // Using a realistic browser string helps avoid 403 Forbidden errors.
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
     });
 

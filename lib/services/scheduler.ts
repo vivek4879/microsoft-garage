@@ -109,8 +109,21 @@ export async function triggerDiscoveryNow(): Promise<{
     curated: number;
 }> {
     // Step 1: Discover
-    await discoverRedditContent();
-    await discoverTwitterContent();
+    console.log("🔍 Starting discovery from sources...");
+    try {
+        await discoverRedditContent();
+        console.log("✅ Reddit discovery finished");
+    } catch (e: any) {
+        console.error("❌ Reddit discovery failed:", e.message);
+    }
+
+    try {
+        await discoverTwitterContent();
+        console.log("✅ Twitter discovery finished");
+    } catch (e: any) {
+        console.error("❌ Twitter discovery failed:", e.message);
+    }
+
     const discovered = await prisma.post.count({
         where: { aiScore: null },
     });
