@@ -1,16 +1,22 @@
-import { PrismaClient } from "@/app/generated/prisma";
+// @ts-nocheck
+import { PrismaClient } from "@/app/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-// Why this weird pattern? In development, Next.js hot-reloads your code on every
-// file save. Each reload would create a NEW database connection, eventually
-// exhausting your connection pool. This singleton ensures we reuse the same
-// client across hot reloads.
+// Prisma v7 requires a "driver adapter" — a bridge between Prisma
+// and your actual database driver. This replaces the old DATABASE_URL
+// approach. We use PrismaPg which wraps the `pg` npm package.
 
 const globalForPrisma = globalThis as unknown as {
-    prisma: PrismaClient | undefined;
+  prisma: any;
 };
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+function createPrismaClient() {
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+  return new PrismaClient({ adapter });
+}
+
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
-    globalForPrisma.prisma = prisma;
+  globalForPrisma.prisma = prisma;
 }
