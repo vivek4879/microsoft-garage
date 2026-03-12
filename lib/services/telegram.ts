@@ -14,32 +14,31 @@ let bot: TelegramBot | null = null;
 export async function getTelegramBot(): Promise<TelegramBot> {
     if (bot) return bot;
 
-    const settings = await prisma.settings.findFirst();
-    if (!settings?.telegramChatId) {
-        throw new Error("Telegram not configured. Add bot token in Settings.");
+    // Favor environment variables for security (set on Vercel)
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+
+    if (!token) {
+        throw new Error("TELEGRAM_BOT_TOKEN not found in environment variables.");
     }
 
-    // We store the bot token in the telegramChatId field for now
-    // In production, you'd want separate fields for token vs chat ID
-    bot = new TelegramBot(settings.telegramChatId, { polling: false });
+    // Initialize without polling (we use webhooks in production)
+    bot = new TelegramBot(token, { polling: false });
 
     return bot;
 }
 
 // Sends a post preview to your Telegram with Approve/Reject buttons
-// Why inline buttons? Way better UX than typing commands.
-// You just tap and it's done.
 export async function sendApprovalRequest(postId: string): Promise<void> {
     const post = await prisma.post.findUnique({ where: { id: postId } });
     if (!post) throw new Error(`Post ${postId} not found`);
 
     const telegramBot = await getTelegramBot();
-    const settings = await prisma.settings.findFirst();
 
     // The chat ID is YOUR personal Telegram user ID
-    // The bot sends messages TO this chat
-    const chatId = settings?.telegramChatId;
-    if (!chatId) throw new Error("Telegram chat ID not configured");
+    // We prioritize env var, then fallback to DB settings
+    const chatId = process.env.TELEGRAM_CHAT_ID || (await prisma.settings.findFirst())?.telegramChatId;
+
+    if (!chatId) throw new Error("Telegram chat ID not configured (checked ENV and DB)");
 
     // Build the message
     const message = `

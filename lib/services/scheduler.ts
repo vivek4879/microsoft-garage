@@ -140,7 +140,7 @@ export async function triggerDiscoveryNow(): Promise<{
         where: {
             status: "pending",
             aiScore: { gte: 7 },
-            screenshotUrl: { not: null },
+            // Removed screenshotUrl requirement for the demo/fallback
             caption: { not: null },
         },
     });

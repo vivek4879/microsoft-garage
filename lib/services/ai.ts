@@ -29,7 +29,7 @@ async function getModel() {
         }
         case "gemini": {
             const google = createGoogleGenerativeAI({ apiKey: aiApiKey });
-            return google("gemini-1.5-flash");
+            return google("gemini-1.5-flash-latest");
         }
         default:
             throw new Error(`Unknown AI provider: ${aiProvider}`);
