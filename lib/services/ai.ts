@@ -1,4 +1,5 @@
-import { generateText } from "ai";
+import { generateObject, generateText } from "ai";
+import { z } from "zod";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
@@ -25,7 +26,7 @@ async function getModel() {
         }
         case "anthropic": {
             const anthropic = createAnthropic({ apiKey: aiApiKey });
-            return anthropic("claude-sonnet-4-20250514");
+            return anthropic("claude-3-5-sonnet-latest");
         }
         case "gemini": {
             const google = createGoogleGenerativeAI({ apiKey: aiApiKey });
@@ -37,37 +38,35 @@ async function getModel() {
 }
 
 // Scores content on a 0-10 scale for humor/virality
-// Why scoring? We discover dozens of posts but only want to post
-// the BEST ones. The AI acts as a filter.
 export async function scoreContent(
     title: string,
     content: string
 ): Promise<{ score: number; reason: string }> {
     const model = await getModel();
 
-    const { text } = await generateText({
-        model,
-        prompt: `You are a social media content curator for a funny content Instagram page.
-
-Rate this content on a scale of 0-10 for humor and viral potential on Instagram.
-
-Title: ${title}
-Content: ${content}
-
-Respond in EXACTLY this JSON format (no markdown, no extra text):
-{"score": 7, "reason": "Brief explanation of why this score"}`,
-    });
-
     try {
-        return JSON.parse(text);
-    } catch {
-        return { score: 5, reason: "Could not parse AI response" };
+        const { object } = await generateObject({
+            model,
+            schema: z.object({
+                score: z.number().min(0).max(10),
+                reason: z.string(),
+            }),
+            prompt: `You are a social media content curator for a funny content Instagram page.
+    
+    Rate this content on a scale of 0-10 for humor and viral potential on Instagram.
+    
+    Title: ${title}
+    Content: ${content}`,
+        });
+
+        return object;
+    } catch (error) {
+        console.error("AI Scoring Error:", error);
+        return { score: 0, reason: "AI failed to score, using 0 to avoid false positives" };
     }
 }
 
 // Generates an Instagram caption with relevant hashtags
-// Why AI for captions? Good captions drive engagement.
-// The AI adds context, humor, and strategic hashtags.
 export async function generateCaption(
     title: string,
     content: string,
@@ -98,7 +97,6 @@ Respond with ONLY the caption text, nothing else.`,
 }
 
 // Suggests the best time to post based on general Instagram best practices
-// In v2, this could learn from YOUR actual engagement data
 export async function suggestPostTime(): Promise<number> {
     const settings = await prisma.settings.findFirst();
     const bestTimes: number[] = settings
@@ -112,37 +110,58 @@ export async function suggestPostTime(): Promise<number> {
 // Main curation pipeline — scores all pending posts and generates captions
 // for the top ones. This is called after discovery.
 export async function curateContent(): Promise<void> {
-    const pendingPosts = await prisma.post.findMany({
-        where: { status: "pending", aiScore: null },
-        take: 20, // process in batches to avoid rate limits
+    // RESET BUG: If any posts were marked as rejected but have NO score, 
+    // it was due to a previous bug. Let's give them another chance!
+    await prisma.post.updateMany({
+        where: { status: "rejected", aiScore: null },
+        data: { status: "pending" }
     });
 
-    for (const post of pendingPosts) {
-        // Score the content
-        const { score, reason } = await scoreContent(
-            post.sourceTitle,
-            post.rawContent || ""
-        );
+    let hasMore = true;
+    while (hasMore) {
+        const pendingPosts = await prisma.post.findMany({
+            where: { status: "pending", aiScore: null },
+            take: 20, // process in batches
+        });
 
-        // Generate caption only for high-scoring content (7+)
-        let caption = null;
-        if (score >= 7) {
-            caption = await generateCaption(
-                post.sourceTitle,
-                post.rawContent || "",
-                post.source
-            );
+        if (pendingPosts.length === 0) {
+            hasMore = false;
+            break;
         }
 
-        // Update the post with AI results
-        await prisma.post.update({
-            where: { id: post.id },
-            data: {
-                aiScore: score,
-                caption,
-                // Low-scoring content gets auto-rejected
-                status: score >= 7 ? "pending" : "rejected",
-            },
-        });
+        console.log(`🧠 Curating batch of ${pendingPosts.length} posts...`);
+
+        for (const post of pendingPosts) {
+            try {
+                // Score the content
+                const { score, reason } = await scoreContent(
+                    post.sourceTitle,
+                    post.rawContent || ""
+                );
+
+                // Generate caption only for high-scoring content (7+)
+                let caption = null;
+                if (score >= 7) {
+                    caption = await generateCaption(
+                        post.sourceTitle,
+                        post.rawContent || "",
+                        post.source
+                    );
+                }
+
+                // Update the post with AI results
+                await prisma.post.update({
+                    where: { id: post.id },
+                    data: {
+                        aiScore: score,
+                        caption,
+                        status: score >= 7 ? "pending" : "rejected",
+                    },
+                });
+                console.log(`✅ Scored ${score}/10: ${post.sourceTitle}`);
+            } catch (error) {
+                console.error(`Failed to curate post ${post.id}:`, error);
+            }
+        }
     }
 }
