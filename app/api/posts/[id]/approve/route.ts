@@ -1,33 +1,37 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/services/db";
 import { suggestPostTime } from "@/lib/services/ai";
+import { auth } from "@/lib/auth";
 
 // POST /api/posts/:id/approve — approve a post for scheduling
 // When you tap "Approve", this sets status to approved and
 // asks the AI to suggest an optimal posting time
 export async function POST(
-    request: Request,
+    req: Request, // Changed 'request' to 'req'
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const { id } = await params;
-
-        // Get AI-suggested posting hour
-        const suggestedHour = await suggestPostTime();
-
-        // Schedule for today at the suggested hour (or tomorrow if past)
-        const scheduledAt = new Date();
-        scheduledAt.setHours(suggestedHour, 0, 0, 0);
-        if (scheduledAt < new Date()) {
-            scheduledAt.setDate(scheduledAt.getDate() + 1);
+        const session = await auth(); // Added session retrieval
+        if (!session?.user?.id) { // Added authorization check
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const post = await prisma.post.update({
-            where: { id },
-            data: { status: "approved", scheduledAt },
+        const { id } = await params;
+        // Verify post ownership
+        const post = await prisma.post.findUnique({
+            where: { id, userId: session.user.id },
         });
 
-        return NextResponse.json(post);
+        if (!post) {
+            return NextResponse.json({ error: "Post not found" }, { status: 404 });
+        }
+
+        const updated = await prisma.post.update({
+            where: { id },
+            data: { status: "approved" },
+        });
+
+        return NextResponse.json(updated);
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

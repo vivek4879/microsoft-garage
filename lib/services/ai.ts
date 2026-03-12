@@ -10,8 +10,10 @@ import { prisma } from "./db";
 // without needing separate implementations for each provider.
 
 // Creates the right AI model based on user's settings
-async function getModel() {
-    const settings = await prisma.settings.findFirst();
+async function getModel(userId: string) {
+    const settings = await prisma.settings.findUnique({
+        where: { userId }
+    });
     if (!settings?.aiApiKey) {
         throw new Error("AI API key not configured. Add it in Settings.");
     }
@@ -39,10 +41,11 @@ async function getModel() {
 
 // Scores content on a 0-10 scale for humor/virality
 export async function scoreContent(
+    userId: string,
     title: string,
     content: string
 ): Promise<{ score: number; reason: string }> {
-    const model = await getModel();
+    const model = await getModel(userId);
 
     try {
         const { object } = await generateObject({
@@ -68,11 +71,12 @@ export async function scoreContent(
 
 // Generates an Instagram caption with relevant hashtags
 export async function generateCaption(
+    userId: string,
     title: string,
     content: string,
     source: string
 ): Promise<string> {
-    const model = await getModel();
+    const model = await getModel(userId);
 
     const { text } = await generateText({
         model,
@@ -97,8 +101,8 @@ Respond with ONLY the caption text, nothing else.`,
 }
 
 // Suggests the best time to post based on general Instagram best practices
-export async function suggestPostTime(): Promise<number> {
-    const settings = await prisma.settings.findFirst();
+export async function suggestPostTime(userId: string): Promise<number> {
+    const settings = await prisma.settings.findUnique({ where: { userId } });
     const bestTimes: number[] = settings
         ? JSON.parse(settings.bestPostTimes)
         : [9, 12, 18]; // default: 9am, noon, 6pm
@@ -109,18 +113,18 @@ export async function suggestPostTime(): Promise<number> {
 
 // Main curation pipeline — scores all pending posts and generates captions
 // for the top ones. This is called after discovery.
-export async function curateContent(): Promise<void> {
+export async function curateContent(userId: string): Promise<void> {
     // RESET BUG: If any posts were marked as rejected but have NO score, 
     // it was due to a previous bug. Let's give them another chance!
     await prisma.post.updateMany({
-        where: { status: "rejected", aiScore: null },
+        where: { userId, status: "rejected", aiScore: null },
         data: { status: "pending" }
     });
 
     let hasMore = true;
     while (hasMore) {
         const pendingPosts = await prisma.post.findMany({
-            where: { status: "pending", aiScore: null },
+            where: { userId, status: "pending", aiScore: null },
             take: 20, // process in batches
         });
 
@@ -129,12 +133,13 @@ export async function curateContent(): Promise<void> {
             break;
         }
 
-        console.log(`🧠 Curating batch of ${pendingPosts.length} posts...`);
+        console.log(`🧠 Curating batch of ${pendingPosts.length} posts for user ${userId}...`);
 
         for (const post of pendingPosts) {
             try {
                 // Score the content
                 const { score, reason } = await scoreContent(
+                    userId,
                     post.sourceTitle,
                     post.rawContent || ""
                 );
@@ -143,6 +148,7 @@ export async function curateContent(): Promise<void> {
                 let caption = null;
                 if (score >= 7) {
                     caption = await generateCaption(
+                        userId,
                         post.sourceTitle,
                         post.rawContent || "",
                         post.source

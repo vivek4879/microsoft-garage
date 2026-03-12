@@ -65,10 +65,11 @@ export async function captureScreenshot(
     }
 }
 
-// Takes screenshots for all posts that don't have one yet
-export async function screenshotPendingPosts(): Promise<void> {
+// Takes screenshots for all posts that don't have one yet for a specific user
+export async function screenshotPendingPosts(userId: string): Promise<void> {
     const posts = await prisma.post.findMany({
         where: {
+            userId,
             screenshotUrl: null,
             status: "pending",
             aiScore: { gte: 7 }, // only screenshot high-scoring posts
@@ -90,7 +91,6 @@ export async function screenshotPendingPosts(): Promise<void> {
             console.log(`📸 Screenshot saved for: ${post.sourceTitle}`);
         } catch (error) {
             console.error(`Failed to screenshot ${post.sourceUrl}:`, error);
-            // Don't crash the whole batch if one fails
         }
     }
 }

@@ -17,130 +17,122 @@ import { prisma } from "./db";
 // * means "every". So "0 */3 * * *" = "at minute 0, every 3 hours"
 
 // Job 1: Content Discovery — runs every 3 hours
-// Fetches fresh content from Reddit and Twitter
 export function startDiscoveryJob() {
     cron.schedule("0 */3 * * *", async () => {
-        console.log("🔍 Discovery job started...");
-        try {
-            await discoverRedditContent();
-            await discoverTwitterContent();
-            console.log("✅ Discovery complete");
-        } catch (error) {
-            console.error("❌ Discovery failed:", error);
+        console.log("🔍 Discovery job started for all users...");
+        const users = await prisma.user.findMany();
+        for (const user of users) {
+          try {
+              await discoverRedditContent(user.id);
+              await discoverTwitterContent(user.id);
+          } catch (error) {
+              console.error(`❌ Discovery failed for user ${user.id}:`, error);
+          }
         }
     });
 }
 
 // Job 2: Curation — runs every 3 hours (30 min after discovery)
-// Gives discovery time to finish, then AI scores the new content
 export function startCurationJob() {
     cron.schedule("30 */3 * * *", async () => {
-        console.log("🧠 Curation job started...");
-        try {
-            await curateContent();
-            await screenshotPendingPosts();
+        console.log("🧠 Curation job started for all users...");
+        const users = await prisma.user.findMany();
+        for (const user of users) {
+          try {
+              await curateContent(user.id);
+              await screenshotPendingPosts(user.id);
 
-            // Send Telegram notifications for high-scoring posts
-            const readyPosts = await prisma.post.findMany({
-                where: {
-                    status: "pending",
-                    aiScore: { gte: 7 },
-                    screenshotUrl: { not: null },
-                    caption: { not: null },
-                },
-            });
+              const readyPosts = await prisma.post.findMany({
+                  where: {
+                      userId: user.id,
+                      status: "pending",
+                      aiScore: { gte: 7 },
+                      caption: { not: null },
+                  },
+              });
 
-            for (const post of readyPosts) {
-                try {
-                    await sendApprovalRequest(post.id);
-                } catch (error) {
-                    console.error(`Failed to notify for post ${post.id}:`, error);
-                }
-            }
-
-            console.log(`✅ Curation complete. ${readyPosts.length} posts sent for approval.`);
-        } catch (error) {
-            console.error("❌ Curation failed:", error);
+              for (const post of readyPosts) {
+                  try {
+                      await sendApprovalRequest(post.id);
+                  } catch (error) {
+                      console.error(`Failed to notify for post ${post.id}:`, error);
+                  }
+              }
+          } catch (error) {
+              console.error(`❌ Curation failed for user ${user.id}:`, error);
+          }
         }
     });
 }
 
 // Job 3: Auto-posting — runs every hour
-// Checks for approved posts that are scheduled for NOW and posts them
 export function startPostingJob() {
     cron.schedule("0 * * * *", async () => {
-        console.log("📤 Posting job started...");
-        try {
-            const now = new Date();
-            const postsToPublish = await prisma.post.findMany({
-                where: {
-                    status: "approved",
-                    scheduledAt: { lte: now }, // scheduled time has passed
-                },
-            });
+        console.log("📤 Posting job started for all users...");
+        const users = await prisma.user.findMany();
+        for (const user of users) {
+          try {
+              const now = new Date();
+              const postsToPublish = await prisma.post.findMany({
+                  where: {
+                      userId: user.id,
+                      status: "approved",
+                      scheduledAt: { lte: now },
+                  },
+              });
 
-            for (const post of postsToPublish) {
-                try {
-                    await postToInstagram(post.id);
-                    console.log(`✅ Posted: ${post.sourceTitle}`);
-                } catch (error) {
-                    console.error(`❌ Failed to post ${post.id}:`, error);
-                }
-            }
-        } catch (error) {
-            console.error("❌ Posting job failed:", error);
+              for (const post of postsToPublish) {
+                  try {
+                      await postToInstagram(post.id);
+                      console.log(`✅ Posted: ${post.sourceTitle}`);
+                  } catch (error) {
+                      console.error(`❌ Failed to post ${post.id}:`, error);
+                  }
+              }
+          } catch (error) {
+              console.error(`❌ Posting job failed for user ${user.id}:`, error);
+          }
         }
     });
 }
 
-// Start all jobs at once — called when the app starts
-export function startAllJobs() {
-    console.log("🚀 Starting all scheduled jobs...");
-    startDiscoveryJob();
-    startCurationJob();
-    startPostingJob();
-    console.log("✅ All jobs scheduled!");
-}
-
 // Manual trigger — for the "Trigger Discovery" button in the dashboard
-// This runs the full pipeline immediately instead of waiting for cron
-export async function triggerDiscoveryNow(): Promise<{
+export async function triggerDiscoveryNow(userId: string): Promise<{
     discovered: number;
     curated: number;
 }> {
     // Step 1: Discover
-    console.log("🔍 Starting discovery from sources...");
+    console.log(`🔍 Starting discovery for user ${userId}...`);
     try {
-        await discoverRedditContent();
-        console.log("✅ Reddit discovery finished");
+        await discoverRedditContent(userId);
     } catch (e: any) {
         console.error("❌ Reddit discovery failed:", e.message);
     }
 
     try {
-        await discoverTwitterContent();
-        console.log("✅ Twitter discovery finished");
+        await discoverTwitterContent(userId);
     } catch (e: any) {
         console.error("❌ Twitter discovery failed:", e.message);
     }
 
     const discovered = await prisma.post.count({
-        where: { aiScore: null },
+        where: { userId, aiScore: null },
     });
 
     // Step 2: Curate
-    await curateContent();
-    await screenshotPendingPosts();
+    await curateContent(userId);
+    await screenshotPendingPosts(userId);
+    
     const curated = await prisma.post.count({
-        where: { status: "pending", aiScore: { gte: 7 } },
+        where: { userId, status: "pending", aiScore: { gte: 7 } },
     });
 
     // Step 3: Notify via Telegram
     const readyPosts = await prisma.post.findMany({
         where: {
+            userId,
             status: "pending",
             aiScore: { gte: 7 },
-            // Removed screenshotUrl requirement for the demo/fallback
             caption: { not: null },
         },
     });

@@ -6,8 +6,10 @@ import { prisma } from "./db";
 // We use "site:twitter.com" or "site:x.com" to limit results to tweets.
 
 // Create a Tavily client — reads API key from Settings
-async function getTavilyClient() {
-    const settings = await prisma.settings.findFirst();
+async function getTavilyClient(userId: string) {
+    const settings = await prisma.settings.findUnique({
+        where: { userId }
+    });
     if (!settings?.tavilyApiKey) {
         throw new Error("Tavily API key not configured. Add it in Settings.");
     }
@@ -24,10 +26,11 @@ interface TwitterResult {
 // Why these queries? We combine "site:x.com" (limits to Twitter)
 // with humor keywords to find viral tweets
 export async function searchFunnyTweets(
+    userId: string,
     query: string = "funny thread",
     maxResults: number = 10
 ): Promise<TwitterResult[]> {
-    const client = await getTavilyClient();
+    const client = await getTavilyClient(userId);
 
     const response = await client.search(
         `site:x.com OR site:twitter.com ${query}`,
@@ -45,36 +48,40 @@ export async function searchFunnyTweets(
     }));
 }
 
-// Main discovery function — searches Twitter via Tavily
-// and saves results to our database
-export async function discoverTwitterContent(): Promise<void> {
-    // Different search queries to get variety
-    const queries = [
-        "funny thread",
-        "hilarious reply",
-        "funniest tweet today",
-        "comedy gold twitter",
-    ];
+// Main entry point for Twitter discovery via Tavily
+export async function discoverTwitterContent(userId: string): Promise<void> {
+    const settings = await prisma.settings.findUnique({
+        where: { userId },
+    });
 
-    // Pick a random query each time for variety
-    const query = queries[Math.floor(Math.random() * queries.length)];
-    const results = await searchFunnyTweets(query, 10);
+    if (!settings?.tavilyApiKey) {
+        console.warn(`No Tavily API key for user ${userId}. Skipping Twitter.`);
+        return;
+    }
 
-    for (const result of results) {
-        // Skip duplicates
-        const exists = await prisma.post.findFirst({
-            where: { sourceUrl: result.url },
-        });
-        if (exists) continue;
+    try {
+        console.log(`🐦 Searching Twitter for user ${userId}...`);
+        const tweets = await searchFunnyTweets(userId, "funny thread", 10);
 
-        await prisma.post.create({
-            data: {
-                source: "twitter",
-                sourceUrl: result.url,
-                sourceTitle: result.title,
-                rawContent: result.content,
-                status: "pending",
-            },
-        });
+        for (const tweet of tweets) {
+            // Isolation check
+            const existing = await prisma.post.findFirst({
+                where: { sourceUrl: tweet.url, userId },
+            });
+
+            if (existing) continue;
+
+            await prisma.post.create({
+                data: {
+                    userId,
+                    source: "twitter",
+                    sourceUrl: tweet.url,
+                    sourceTitle: tweet.title,
+                    rawContent: tweet.content,
+                },
+            });
+        }
+    } catch (error) {
+        console.error("Tavily Twitter search failed:", error);
     }
 }

@@ -1,46 +1,53 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/services/db";
+import { auth } from "@/lib/auth";
 
-// GET /api/settings — fetch current settings
+// GET /api/settings — Load user configuration from DB
 export async function GET() {
-    try {
-        let settings = await prisma.settings.findFirst();
-
-        // If no settings exist yet, create defaults
-        if (!settings) {
-            settings = await prisma.settings.create({ data: {} });
-        }
-
-        return NextResponse.json(settings);
-    } catch (error: any) {
-        return NextResponse.json(
-            { error: error.message },
-            { status: 500 }
-        );
+    const session = await auth();
+    if (!session?.user?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-}
 
-// PUT /api/settings — update settings
-// Called when the user changes AI model, post frequency, etc.
-export async function PUT(request: Request) {
     try {
-        const body = await request.json();
-        let settings = await prisma.settings.findFirst();
+        let settings = await prisma.settings.findUnique({
+            where: { userId: session.user.id },
+        });
 
         if (!settings) {
-            settings = await prisma.settings.create({ data: body });
-        } else {
-            settings = await prisma.settings.update({
-                where: { id: settings.id },
-                data: body,
+            // Create default settings if new user
+            settings = await prisma.settings.create({
+                data: {
+                    userId: session.user.id,
+                },
             });
         }
 
         return NextResponse.json(settings);
     } catch (error: any) {
-        return NextResponse.json(
-            { error: error.message },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+// PUT /api/settings — Update user configuration
+export async function PUT(req: Request) {
+    const session = await auth();
+    if (!session?.user?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    try {
+        const body = await req.json();
+        const settings = await prisma.settings.upsert({
+            where: { userId: session.user.id },
+            update: body,
+            create: {
+                ...body,
+                userId: session.user.id,
+            },
+        });
+        return NextResponse.json(settings);
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

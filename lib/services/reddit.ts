@@ -10,6 +10,7 @@ interface RedditPost {
     num_comments: number;
     url: string;
     subreddit: string;
+    selftext: string;
 }
 
 interface RedditComment {
@@ -50,6 +51,7 @@ export async function fetchSubredditPosts(
         num_comments: child.data.num_comments,
         url: child.data.url,
         subreddit: child.data.subreddit,
+        selftext: child.data.selftext || "",
     }));
 }
 
@@ -84,42 +86,45 @@ export async function fetchPostComments(
         }));
 }
 
-// Main discovery function - pulls from all configured subreddits
-// and saves the best content to our database
-export async function discoverRedditContent(): Promise<void> {
-    // Read subreddit list from Settings
-    const settings = await prisma.settings.findFirst();
-    const subreddits: string[] = settings
-        ? JSON.parse(settings.subreddits)
-        : ["funny", "AskReddit", "mildlyinteresting"];
+// Main entry point for Reddit discovery
+export async function discoverRedditContent(userId: string): Promise<void> {
+    const settings = await prisma.settings.findUnique({
+        where: { userId },
+    });
+
+    if (!settings) {
+        console.warn(`No settings found for user ${userId}. Skipping Reddit.`);
+        return;
+    }
+
+    const subreddits: string[] = JSON.parse(settings.subreddits);
 
     for (const sub of subreddits) {
-        const posts = await fetchSubredditPosts(sub, 10);
+        console.log(`📡 Fetching r/${sub} for user ${userId}...`);
+        try {
+            const posts = await fetchSubredditPosts(sub);
+            
+            for (const post of posts) {
+                // Check if we've already seen this post
+                const existing = await prisma.post.findFirst({
+                    where: { sourceUrl: post.url, userId },
+                });
 
-        for (const post of posts) {
-            // Skip if we've already saved this post (no duplicates)
-            const exists = await prisma.post.findFirst({
-                where: { sourceUrl: `https://reddit.com${post.permalink}` },
-            });
-            if (exists) continue;
+                if (existing) continue;
 
-            // Fetch the top comments for context
-            const comments = await fetchPostComments(post.permalink, 5);
-            const commentText = comments
-                .map((c) => `u/${c.author}: ${c.body}`)
-                .join("\n");
-
-            // Save to database with status "pending"
-            await prisma.post.create({
-                data: {
-                    source: "reddit",
-                    sourceUrl: `https://reddit.com${post.permalink}`,
-                    sourceTitle: post.title,
-                    rawContent: JSON.stringify({ post, comments }),
-                    aiScore: null,
-                    status: "pending",
-                },
-            });
+                // Save to DB
+                await prisma.post.create({
+                    data: {
+                        userId,
+                        source: "reddit",
+                        sourceUrl: post.url,
+                        sourceTitle: post.title,
+                        rawContent: post.selftext || post.title,
+                    },
+                });
+            }
+        } catch (error) {
+            console.error(`Failed to fetch r/${sub}:`, error);
         }
     }
 }
