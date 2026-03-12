@@ -18,4 +18,32 @@ model Post {
   caption       String?
   scheduledAt   DateTime @default(now())
   status        String   @default("pending") // pending, approved, posted
+  analytics   Analytics[]
+
+}
+
+
+model Settings {
+  id              String  @id @default(cuid())
+  aiProvider      String  @default("openai")    // openai, anthropic, or gemini
+  aiApiKey        String?
+  postFrequency   Int     @default(2)            // posts per day
+  telegramChatId  String?
+  igAccessToken   String?
+  igPageId        String?
+  tavilyApiKey    String?
+  subreddits      String  @default("[\"funny\",\"AskReddit\",\"mildlyinteresting\"]")
+  bestPostTimes   String  @default("[9,12,18]")  // hours of day (JSON array)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Analytics {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id])
+  likes     Int      @default(0)
+  comments  Int      @default(0)
+  reach     Int      @default(0)
+  savedAt   DateTime @default(now())
 }
