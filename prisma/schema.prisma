@@ -13,14 +13,21 @@ datasource db {
 }
 
 model Post {
-  id            String   @id @default(cuid())
-  source        String   // "reddit" or "twitter"
+  id            String       @id @default(cuid())
+  source        String       // "reddit" or "twitter"
+  sourceUrl     String
+  sourceTitle   String
+  rawContent    String?      // raw JSON of the post + comments
+  screenshotUrl String?
   caption       String?
-  scheduledAt   DateTime @default(now())
-  status        String   @default("pending") // pending, approved, posted
-  analytics   Analytics[]
-
+  aiScore       Float?
+  status        String       @default("pending")
+  scheduledAt   DateTime?
+  postedAt      DateTime?
+  createdAt     DateTime     @default(now())
+  analytics     Analytics[]
 }
+
 
 
 model Settings {
