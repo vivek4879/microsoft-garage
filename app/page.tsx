@@ -44,12 +44,18 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/discover", { method: "POST" });
       const data = await res.json();
+
+      if (!res.ok) {
+        setMessage(`❌ Discovery failed: ${data.error || "Unknown error"}`);
+        return;
+      }
+
       setMessage(
         `🎉 Found ${data.discovered} new posts, ${data.curated} curated!`
       );
       fetchStats(); // refresh stats
     } catch (error) {
-      setMessage("❌ Discovery failed. Check your settings.");
+      setMessage("❌ Network error. Check your connection.");
     } finally {
       setIsDiscovering(false);
     }
