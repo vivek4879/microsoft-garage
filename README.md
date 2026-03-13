@@ -106,9 +106,8 @@ The focus was practical building: moving from idea to working prototype in one d
 - **Claude in VS Code** – AI coding assistant for anyone
 - **Lovable** – AI-native app builder
 - **Tavily** – Live web search API for LLMs
-- **Microsoft Garage** – A platform for Microsoft employees and the ecosystem to iterate on hack projects.
 
 ---
 
 ### 🏗️ Status: Work in Progress
-This project is currently a **Work in Progress**. Developed with 💙 by builders for builders.
+This project is currently a **Work in Progress**.
